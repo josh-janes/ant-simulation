@@ -1,0 +1,86 @@
+body,
+html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: sans-serif;
+    background: #000;
+}
+
+/* Canvas styling */
+#simulationCanvas {
+    display: block;
+}
+
+/* Top left controls */
+#controls {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 10px;
+    border-radius: 4px;
+}
+
+/* About drawer in top right */
+#aboutContainer {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+}
+#aboutContainer button {
+    background: rgba(255, 255, 255, 0.8);
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+#aboutContent {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 5px;
+    width: 250px;
+}
+
+/* Stats drawer in bottom left */
+#statsContainer {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+}
+#statsContainer button {
+    background: rgba(255, 255, 255, 0.8);
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+#statsContent {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 5px;
+    width: 200px;
+}
+
+/* Info box styling */
+#infoBox {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    border-radius: 4px;
+    width: 250px;
+}
+#infoBox button {
+    margin-top: 5px;
+    background: #ddd;
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+}

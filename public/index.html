@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Ant Simulation</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <!-- Top left controls (existing controls) -->
+        <div id="controls">
+            <button id="playPauseButton">Pause</button>
+            <!-- Reset now clears the genome seed -->
+            <button id="resetButton">Reset</button>
+            <button id="toggleParameters">Show Parameters</button>
+            <div id="settings">
+                <div id="basicSettings">
+                    <label for="simulationSpeed">Simulation Speed:</label>
+                    <input
+                        type="range"
+                        id="simulationSpeed"
+                        min="1"
+                        max="60"
+                        value="30"
+                    />
+                </div>
+                <!-- The parameters panel is now closed by default -->
+                <div id="parameters" style="display: none">
+                    <h3>Adjustable Parameters</h3>
+                    <label for="antLifespan">Ant Lifespan (ticks):</label>
+                    <input type="number" id="antLifespan" value="500" />
+                    <br />
+                    <label for="antDensity">Initial Ant Count:</label>
+                    <input type="number" id="antDensity" value="50" />
+                    <br />
+                    <label for="maxAnts">Max Ants:</label>
+                    <input type="number" id="maxAnts" value="200" />
+                    <br />
+                    <label for="foodDensity">Food Density (0–1):</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        id="foodDensity"
+                        value="0.05"
+                    />
+                    <br />
+                    <label for="terrainDensity">Terrain Density (0–1):</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        id="terrainDensity"
+                        value="0.05"
+                    />
+                    <br />
+                    <label for="eggToAdultTicks"
+                        >Egg Hatching Duration (ticks):</label
+                    >
+                    <input type="number" id="eggToAdultTicks" value="50" />
+                    <br />
+                    <label for="foodSpawnInterval"
+                        >Food Spawn Interval (ticks):</label
+                    >
+                    <input type="number" id="foodSpawnInterval" value="100" />
+                    <br />
+                    <label for="foodSpawnCount">Food Spawn Count:</label>
+                    <input type="number" id="foodSpawnCount" value="5" />
+                    <br />
+                    <button id="applyParameters">Apply Parameters</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Right About Drawer -->
+        <div id="aboutContainer">
+            <button id="aboutButton">About</button>
+            <div id="aboutContent" style="display: none">
+                <p>
+                    <strong>About this Simulation:</strong><br />
+                    This simulation demonstrates a dynamic ecosystem where
+                    pixel-sized ants live, move, reproduce (both sexually and
+                    asexually), and evolve using a simple neural network. Each
+                    ant uses its local field of vision to choose actions like
+                    moving, eating, attacking, mating, or reproducing asexually.
+                    Adjustable parameters let you modify ant lifespan, density,
+                    food/terrain availability, and even the food‐spawning rate.
+                </p>
+                <p>
+                    You can pan around the grid by dragging the mouse. Clicking
+                    an ant will display its details and let you adopt its genome
+                    (or copy a link with its genome encoded) for the next
+                    generation.
+                </p>
+                <p>Enjoy exploring and evolving your ant simulation!</p>
+                <button id="closeAbout">Close</button>
+            </div>
+        </div>
+
+        <!-- Canvas for simulation -->
+        <canvas id="simulationCanvas"></canvas>
+
+        <!-- Bottom Left Stats Drawer -->
+        <div id="statsContainer">
+            <button id="toggleStats">Show Stats</button>
+            <div id="statsContent" style="display: none">
+                <!-- Dynamic simulation stats will appear here -->
+            </div>
+        </div>
+
+        <!-- Info box when clicking on an ant -->
+        <div id="infoBox" style="display: none">
+            <h3>Ant Info</h3>
+            <div id="antInfo"></div>
+            <!-- New button to adopt genome -->
+            <button id="adoptGenome">Adopt Genome and Reset</button>
+            <!-- New Copy button that will create a shareable URL -->
+            <button id="copyGenome">Copy Link</button>
+            <button id="closeInfo">Close</button>
+        </div>
+
+        <script src="simulation.js"></script>
+    </body>
+</html>
