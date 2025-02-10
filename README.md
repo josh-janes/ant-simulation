@@ -33,7 +33,7 @@ Installation
 ### Clone the repository:
 
 ```
-git clone https://github.com/yourusername/ant-simulation.git
+git clone https://github.com/josh-janes/ant-simulation.git
 cd ant-simulation
 ```
 
