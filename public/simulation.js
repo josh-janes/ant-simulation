@@ -1,40 +1,98 @@
-// simulation.js
+/*
+ * Class representing a feedforward neural network.
+ * Expects weights to be an array of matrices (2D arrays)
+ * and biases to be an array of vectors.
+ */
+class NeuralNetwork {
+  constructor(weights, biases) {
+    this.weights = weights; // e.g. [ [ [w11, w12, ...], [w21, w22, ...], ... ], ... ]
+    this.biases = biases; // e.g. [ [b1, b2, ...], ... ]
+  }
+
+  // Sigmoid activation function.
+  activate(x) {
+    return 1 / (1 + Math.exp(-x));
+  }
+
+  /**
+   * Predict the output of the neural network given an input vector.
+   * Uses explicit loops to compute the dot product of weights and inputs.
+   *
+   * @param {number[]} inputVector - The input vector to the network.
+   * @returns {number[]} - The output vector after processing through the network.
+   */
+  predict(inputVector) {
+    let output = inputVector;
+
+    // For each layer of the network...
+    for (let layer = 0; layer < this.weights.length; layer++) {
+      const weightMatrix = this.weights[layer]; // 2D array: each row corresponds to a neuron
+      const biasVector = this.biases[layer]; // 1D array: one bias per neuron
+      let nextOutput = [];
+
+      // For each neuron in the current layer:
+      for (let neuron = 0; neuron < weightMatrix.length; neuron++) {
+        const weightsForNeuron = weightMatrix[neuron]; // Array of weights for this neuron
+        let sum = 0;
+
+        // Compute the dot product of the weights and the current output vector.
+        for (let j = 0; j < weightsForNeuron.length; j++) {
+          sum += weightsForNeuron[j] * output[j];
+        }
+
+        // Add the bias for this neuron.
+        sum += biasVector[neuron];
+
+        // Apply the activation function.
+        nextOutput.push(this.activate(sum));
+      }
+
+      // Prepare for the next layer.
+      output = nextOutput;
+    }
+
+    return output;
+  }
+
+
+  // Compute softmax probabilities for the output vector.
+  softmax(values) {
+    // For numerical stability, subtract the max value.
+    const maxVal = Math.max(...values);
+    const expValues = values.map(v => Math.exp(v - maxVal));
+    const sumExp = expValues.reduce((sum, v) => sum + v, 0);
+    return expValues.map(v => v / sumExp);
+  }
+
+  // Sample an index based on the probabilities.
+  sampleIndex(probabilities) {
+    let r = Math.random();
+    for (let i = 0; i < probabilities.length; i++) {
+      r -= probabilities[i];
+      if (r <= 0) {
+        return i;
+      }
+    }
+    return probabilities.length - 1; // Fallback
+  }
+}
 
 // Global adjustable parameters.
 const params = {
   antLifespan: 500, // Ticks before an adult becomes "old"
   antDensity: 50, // Initial number of ants
   maxAnts: 200, // Maximum number of ants allowed in the simulation
+  maxAntHealth: 100,
   foodDensity: 0.05, // Chance that a new grid cell is food
   terrainDensity: 0.05, // Chance that a new grid cell is terrain
   eggToAdultTicks: 50, // Ticks for an egg to hatch
   foodSpawnInterval: 100, // Every X ticks, new food is spawned
   foodSpawnCount: 5, // Number of food cells to add per spawn event
+  genomeNoise: 0.1 // Amount of mutation to genome during sexual reproduction
 };
 
 // Global variable to hold a seed genome (if adopted).
 let seedGenome = null;
-// Mutation noise factor.
-const genomeNoiseLevel = 0.1;
-
-// Check URL parameters for a seed.
-const urlParams = new URLSearchParams(window.location.search);
-const seedParam = urlParams.get("seed");
-if (seedParam) {
-  const seedArray = seedParam.split(",").map(Number);
-  if (seedArray.length === 10 && seedArray.every((n) => !isNaN(n))) {
-    seedGenome = seedArray;
-  }
-}
-
-// Helper function to mutate a genome.
-function mutateGenome(base, noiseLevel) {
-  return base.map((val) => {
-    let noise = (Math.random() * 2 - 1) * noiseLevel;
-    let newVal = val + noise;
-    return Math.min(Math.max(newVal, 0), 1);
-  });
-}
 
 // Get canvas and context.
 const canvas = document.getElementById("simulationCanvas");
@@ -84,58 +142,179 @@ canvas.addEventListener("mouseleave", () => {
  * Class representing an ant.
  */
 class Ant {
-  constructor(x, y) {
-    this.x = x;
+  constructor(x, y, neuralNetwork = null, stage = null) {
+    this.x = x; // Position on the grid
     this.y = y;
+    this.age = 0;
     this.health = 100;
-    this.age = 0; // Overall ticks alive
-    this.stage = "adult"; // "egg", "adult", or "old"
-    this.stageAge = 0; // Ticks spent in the current stage
+    this.stage = stage != null ? stage : "egg"; // "egg", "adult", "old"
+    this.stageAge = 0;
+    this.id = crypto.randomUUID(); // Unique identifier
 
-    // Use the seed genome if available (with mutation) or generate randomly.
-    if (seedGenome !== null) {
-      this.neuralNetwork = mutateGenome(seedGenome, genomeNoiseLevel);
+    // Neural network initialization (inherit or random)
+    if (neuralNetwork) {
+      // console.log(neuralNetwork.weights);
+      // let weights = neuralNetwork.weights.map((value) => value + (Math.random() - 0.5) * 0.1);
+      // let biases = neuralNetwork.biases.map((value) => value + (Math.random() - 0.5) * 0.1);
+      this.neuralNetwork = neuralNetwork;
     } else {
-      this.neuralNetwork = [];
-      for (let i = 0; i < 10; i++) {
-        this.neuralNetwork.push(Math.random());
-      }
+      this.neuralNetwork = new NeuralNetwork(
+          this.randomWeights(),
+          this.randomBiases(),
+      );
     }
-    this.baseColor = this.computeColorFromNN();
-    this.nextAction = "none";
+
+    // Genetic similarity affects color
+    this.baseColor = this.calculateColorFromNN();
   }
 
-  computeColorFromNN() {
-    const r = Math.floor(this.neuralNetwork[0] * 255);
-    const g = Math.floor(this.neuralNetwork[1] * 255);
-    const b = Math.floor(this.neuralNetwork[2] * 255);
-    return `rgb(${r},${g},${b})`;
+  randomWeights() {
+    return Array.from({ length: 3 }, () =>
+        Array(10)
+            .fill()
+            .map(() => Math.random() * 2 - 1),
+    );
+  }
+
+  randomBiases() {
+    return Array.from({ length: 3 }, () =>
+        Array(10)
+            .fill()
+            .map(() => Math.random() * 2 - 1),
+    );
+  }
+
+  calculateColorFromNN() {
+    if (!this.neuralNetwork) {
+      return "rgb(0,0,0)";
+    }
+
+    const sampledValues = [];
+
+    // Sample first element of each weight matrix (handles both 1D and 2D)
+    for (const weightMatrix of this.neuralNetwork.weights) {
+      if (weightMatrix.length > 0) {
+        if (Array.isArray(weightMatrix[0])) {
+          // 2D matrix: take first element of the first row
+          sampledValues.push(weightMatrix[0][0]);
+        } else {
+          // 1D array: take first element
+          sampledValues.push(weightMatrix[0]);
+        }
+      }
+    }
+
+    // Sample first element of each bias vector
+    for (const biasVector of this.neuralNetwork.biases) {
+      if (biasVector.length > 0) {
+        sampledValues.push(biasVector[0]);
+      }
+    }
+
+    let r = 0,
+        g = 0,
+        b = 0;
+    for (let i = 0; i < sampledValues.length; i++) {
+      const value = sampledValues[i];
+      switch (i % 3) {
+        case 0:
+          r += value;
+          break;
+        case 1:
+          g += value;
+          break;
+        case 2:
+          b += value;
+          break;
+      }
+    }
+
+    // Ensure RGB values are within 0-255
+    const clamp = (val) => Math.abs((val * 256) % 256);
+    return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`;
+  }
+  /**
+   * Converts the ant's local surroundings directly into a numerical input vector.
+   * This version combines "getVision" and "processVision" for efficiency.
+   *
+   * @param {Object} simulation - The simulation instance containing the getCell(x, y) method.
+   * @returns {number[]} - The input vector for the neural network.
+   */
+  processVision(simulation) {
+    const visionRange = 1; // Look at a 3x3 grid around the ant.
+    const size = (visionRange * 2 + 1) ** 2;
+    const inputVector = new Array(size);
+    let index = 0;
+
+    for (let dy = -visionRange; dy <= visionRange; dy++) {
+      for (let dx = -visionRange; dx <= visionRange; dx++) {
+        const cell = simulation.getCell(this.x + dx, this.y + dy);
+        const ant = simulation.getAntAt(this.x + dx, this.y + dy);
+
+        // Map cell type to a numeric value:
+        // For example, food=1, terrain=-1, ant=0.5, empty=0.
+        let value = 0;
+        if (ant != null) {
+          value = 2;
+        } else if (cell === "food") {
+          value = 1;
+        } else if (cell === "terrain") {
+          value = 0;
+        } else if (cell === "empty") {
+          value = -1;
+        }
+
+        inputVector[index++] = value;
+      }
+    }
+    return inputVector;
   }
 
   decideAction(simulation) {
     if (this.stage === "egg") return "none";
+
+    //let vision = getVision(simulation); // Get surrounding pixels
+    let inputVector = this.processVision(simulation); // Convert to NN input
+    let outputVector = this.neuralNetwork.predict(inputVector); // Compute outputs
+
+    console.log("id: " + this.id + ": inputVector: " + inputVector);
+    console.log("id: " + this.id + ": outputVector: " + outputVector);
+
     let actions =
-      this.stage === "adult"
-        ? [
-            "up",
-            "down",
-            "left",
-            "right",
-            "attack",
-            "eat",
-            "sleep",
-            "mate",
-            "asexual",
-          ]
-        : ["attack", "eat", "sleep"];
-    return actions[Math.floor(Math.random() * actions.length)];
+        this.stage === "adult"
+            ? [
+              "up",
+              "down",
+              "left",
+              "right",
+              "attack",
+              "eat",
+              "sleep",
+              "mate",
+              "asexual",
+            ]
+            : ["attack", "eat", "sleep"];
+
+    const probabilities = this.neuralNetwork.softmax(outputVector);
+    let chosenIndex = this.neuralNetwork.sampleIndex(probabilities);
+    console.log(
+        "id: " +
+        this.id +
+        "chosen action = " +
+        actions[chosenIndex % actions.length] +
+        "chosen index = " + chosenIndex +
+        "outputVector = " + outputVector +
+        "inputVector = " + inputVector
+    );
+    return actions[chosenIndex % actions.length]; // Return corresponding action
   }
 
   processAction(action, simulation) {
+    console.log("processing action" + action);
     // For movement, compute target cell and check for terrain.
     if (["up", "down", "left", "right"].includes(action)) {
       let newX = this.x,
-        newY = this.y;
+          newY = this.y;
       if (action === "up") newY = this.y - 1;
       if (action === "down") newY = this.y + 1;
       if (action === "left") newX = this.x - 1;
@@ -150,20 +329,19 @@ class Ant {
         return;
       }
     }
-    // If the ant is old and tries to move, ignore movement.
-    if (
-      this.stage === "old" &&
-      ["up", "down", "left", "right"].includes(action)
-    )
-      return;
+
     switch (action) {
       case "attack": {
         const target =
-          simulation.getAntAt(this.x, this.y - 1) ||
-          simulation.getAntAt(this.x, this.y + 1) ||
-          simulation.getAntAt(this.x - 1, this.y) ||
-          simulation.getAntAt(this.x + 1, this.y);
-        if (target) target.health -= 10;
+            simulation.getAntAt(this.x, this.y - 1) ||
+            simulation.getAntAt(this.x, this.y + 1) ||
+            simulation.getAntAt(this.x - 1, this.y) ||
+            simulation.getAntAt(this.x + 1, this.y);
+        if (target && target.stage === 'egg') {
+          target.health -= 50;
+          this.health = Math.min(params.maxAntHealth, this.health + 20);
+        }
+        else if (target) target.health -= 10;
         break;
       }
       case "eat": {
@@ -181,8 +359,11 @@ class Ant {
         if (simulation.ants.length < params.maxAnts) {
           this.health /= 2;
           const egg = new Ant(this.x, this.y);
-          egg.neuralNetwork = [...this.neuralNetwork];
-          egg.baseColor = egg.computeColorFromNN();
+          egg.neuralNetwork = new NeuralNetwork(
+              this.neuralNetwork.weights,
+              this.neuralNetwork.biases,
+          );
+          egg.baseColor = egg.calculateColorFromNN();
           egg.stage = "egg";
           egg.stageAge = 0;
           egg.health = 50;
@@ -207,6 +388,8 @@ class Simulation {
       const ant = new Ant(
         Math.floor(Math.random() * 100 - 50),
         Math.floor(Math.random() * 100 - 50),
+        seedGenome,
+        'adult'
       );
       this.ants.push(ant);
     }
@@ -269,15 +452,39 @@ class Simulation {
           }
         }
         if (partner && this.ants.length < params.maxAnts) {
-          const offspringNN = [];
-          for (let i = 0; i < 10; i++) {
-            offspringNN.push(
-              i < 5 ? ant.neuralNetwork[i] : partner.neuralNetwork[i],
+          let offspringWeights = [];
+          let offspringBiases = [];
+
+          // Combine weights and biases from both parents
+          for (let i = 0; i < ant.neuralNetwork.weights.length; i++) {
+            offspringWeights.push(
+              i % 2 === 0
+                ? ant.neuralNetwork.weights[i]
+                : partner.neuralNetwork.weights[i],
+            );
+            offspringBiases.push(
+              i % 2 === 0
+                ? ant.neuralNetwork.biases[i]
+                : partner.neuralNetwork.biases[i],
             );
           }
-          const egg = new Ant(ant.x, ant.y);
-          egg.neuralNetwork = offspringNN;
-          egg.baseColor = egg.computeColorFromNN();
+
+           // Apply small mutation to encourage diversity
+          offspringWeights = offspringWeights.map(layer =>
+              layer.map(value => value + (Math.random() - 0.5) * params.genomeNoise)
+          );
+          offspringBiases = offspringBiases.map(layer =>
+              layer.map(value => value + (Math.random() - 0.5) * params.genomeNoise)
+          );
+
+          // Create the new ant with inherited and mutated neural network
+          const egg = new Ant(
+            ant.x,
+            ant.y,
+            new NeuralNetwork(offspringWeights, offspringBiases),
+          );
+
+          egg.baseColor = egg.calculateColorFromNN();
           egg.stage = "egg";
           egg.stageAge = 0;
           egg.health = 50;
@@ -295,15 +502,17 @@ class Simulation {
       }
       ant.age++;
       ant.stageAge++;
+      ant.health -= 1;
       if (ant.stage === "egg" && ant.stageAge >= params.eggToAdultTicks) {
         ant.stage = "adult";
         ant.health = 100;
       }
-      if (ant.stage === "adult" && ant.age >= params.antLifespan) {
+      if (ant.stage === "adult" && ant.age >= params.antLifespan + (Math.random() - 0.5) * 0.05) {
         ant.stage = "old";
       }
     }
     this.ants = this.ants.filter((ant) => ant.health > 0);
+    this.ants = this.ants.filter((ant) => ant.stage !== "old");
   }
 
   render() {
@@ -350,13 +559,16 @@ let simulation = new Simulation();
 // Global tick counter for food spawning.
 let tickCount = 0;
 function spawnFood() {
-  const centerX = Math.floor((camera.x + canvas.width / 2) / cellSize);
-  const centerY = Math.floor((camera.y + canvas.height / 2) / cellSize);
+  // Determine the visible grid boundaries:
+  const left = Math.floor(camera.x / cellSize);
+  const top = Math.floor(camera.y / cellSize);
+  const right = Math.floor((camera.x + canvas.width) / cellSize);
+  const bottom = Math.floor((camera.y + canvas.height) / cellSize);
+
+  // Spawn food at random positions within the visible area:
   for (let i = 0; i < params.foodSpawnCount; i++) {
-    const offsetX = Math.floor(Math.random() * 21) - 10;
-    const offsetY = Math.floor(Math.random() * 21) - 10;
-    const foodX = centerX + offsetX;
-    const foodY = centerY + offsetY;
+    const foodX = Math.floor(Math.random() * (right - left + 1)) + left;
+    const foodY = Math.floor(Math.random() * (bottom - top + 1)) + top;
     simulation.grid.set(`${foodX},${foodY}`, "food");
   }
 }
@@ -366,12 +578,10 @@ function updateStats() {
   const total = simulation.ants.length;
   const eggs = simulation.ants.filter((a) => a.stage === "egg").length;
   const adults = simulation.ants.filter((a) => a.stage === "adult").length;
-  const olds = simulation.ants.filter((a) => a.stage === "old").length;
   const statsHTML = `
     <p><strong>Total Ants:</strong> ${total}</p>
     <p><strong>Eggs:</strong> ${eggs}</p>
     <p><strong>Adults:</strong> ${adults}</p>
-    <p><strong>Old:</strong> ${olds}</p>
   `;
   document.getElementById("statsContent").innerHTML = statsHTML;
 }
@@ -446,7 +656,6 @@ document.getElementById("toggleStats").addEventListener("click", () => {
   }
 });
 
-// Genome adoption: when an ant is clicked, show its info.
 let currentSelectedAnt = null;
 function showAntInfo(ant) {
   currentSelectedAnt = ant;
@@ -457,32 +666,38 @@ function showAntInfo(ant) {
     <p><strong>Position:</strong> (${ant.x}, ${ant.y})</p>
     <p><strong>Health:</strong> ${ant.health}</p>
     <p><strong>Age:</strong> ${ant.age}</p>
-    <p><strong>Neural Network:</strong> [${ant.neuralNetwork.map((n) => n.toFixed(2)).join(", ")}]</p>
+    <p><strong>Neural Network:</strong> [  ${[
+      ...ant.neuralNetwork.weights.flat(2), // Flatten weights
+      ...ant.neuralNetwork.biases.flat(2), // Flatten biases
+    ]
+      .map((n) => n.toFixed(2)) // Format each value
+      .join(", ")}]</p>
   `;
   infoBox.style.display = "block";
 }
 document.getElementById("adoptGenome").addEventListener("click", () => {
   if (currentSelectedAnt) {
-    seedGenome = [...currentSelectedAnt.neuralNetwork];
+    seedGenome = currentSelectedAnt.neuralNetwork;
     simulation = new Simulation();
     document.getElementById("infoBox").style.display = "none";
   }
 });
 
-// New Copy Link button: build a URL with the ant’s genome encoded and copy to clipboard.
-document.getElementById("copyGenome").addEventListener("click", () => {
-  if (currentSelectedAnt) {
-    const genomeStr = currentSelectedAnt.neuralNetwork.join(",");
-    const baseUrl = window.location.href.split("?")[0];
-    const newUrl = `${baseUrl}?seed=${encodeURIComponent(genomeStr)}`;
-    navigator.clipboard.writeText(newUrl).then(() => {
-      document.getElementById("copyGenome").textContent = "Copied!";
-      setTimeout(() => {
-        document.getElementById("copyGenome").textContent = "Copy Link";
-      }, 2000);
-    });
-  }
-});
+// TODO // Build a URL with the ant’s genome encoded and copy to clipboard.
+// document.getElementById("copyGenome").addEventListener("click", () => {
+//   if (currentSelectedAnt) {
+//     const weightsStr = currentSelectedAnt.neuralNetwork.weights.join(",");
+//     const biasesStr = currentSelectedAnt.neuralNetwork.biases.join(",");
+//     const baseUrl = window.location.href.split("?")[0];
+//     const newUrl = `${baseUrl}?weights=${encodeURIComponent(weightsStr)}&biases=${biasesStr}`;
+//     navigator.clipboard.writeText(newUrl).then(() => {
+//       document.getElementById("copyGenome").textContent = "Copied!";
+//       setTimeout(() => {
+//         document.getElementById("copyGenome").textContent = "Copy Link";
+//       }, 2000);
+//     });
+//   }
+// });
 document.getElementById("closeInfo").addEventListener("click", () => {
   document.getElementById("infoBox").style.display = "none";
 });
@@ -521,5 +736,35 @@ canvas.addEventListener("click", (e) => {
   const ant = simulation.getAntAt(gridX, gridY);
   if (ant) {
     showAntInfo(ant);
+  }
+});
+
+window.addEventListener('load', function() {
+  console.log("Window loaded. Checking for seed parameters...");
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const weightsParam = urlParams.get("weights");
+  const biasesParam = urlParams.get("biases");
+
+  console.log("Weights parameter:", weightsParam);
+  console.log("Biases parameter:", biasesParam);
+
+  if (weightsParam && biasesParam) {
+    const weightsArray = weightsParam.split(",").map(Number);
+    const biasesArray = biasesParam.split(",").map(Number);
+
+    console.log("Parsed weights:", weightsArray);
+    console.log("Parsed biases:", biasesArray);
+
+    if (weightsArray.every(n => !isNaN(n)) && biasesArray.every(n => !isNaN(n))) {
+      // Assuming your NeuralNetwork constructor accepts weights and biases arrays.
+      seedGenome = new NeuralNetwork(weightsArray, biasesArray);
+      simulation = new Simulation();
+      console.log("Seed genome set successfully:", seedGenome);
+    } else {
+      console.error("Invalid numeric values found in URL parameters.");
+    }
+  } else {
+    console.log("No seed parameters provided in URL.");
   }
 });
