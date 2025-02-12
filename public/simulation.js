@@ -1,3 +1,33 @@
+// Global adjustable parameters.
+const params = {
+  antLifespan: 500, // Ticks before an adult becomes "old"
+  antDensity: 50, // Initial number of ants
+  maxAnts: 200, // Maximum number of ants allowed in the simulation
+  maxAntHealth: 100,
+  foodDensity: 0.05, // Chance that a new grid cell is food
+  terrainDensity: 0.05, // Chance that a new grid cell is terrain
+  eggToAdultTicks: 50, // Ticks for an egg to hatch
+  foodSpawnInterval: 100, // Every X ticks, new food is spawned
+  foodSpawnCount: 5, // Number of food cells to add per spawn event
+  genomeNoise: 0.1 // Amount of mutation to genome during sexual reproduction
+};
+
+// Simulation settings.
+let simulationSpeed = 30; // ticks per second
+let cellSize = 10; // size of each simulation cell (pixels)
+
+// Camera parameters for panning.
+let camera = { x: 0, y: 0 };
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let cameraStart = { x: 0, y: 0 };
+
+// Global variable to hold a seed genome (if adopted).
+let seedGenome = null;
+// Get canvas and context.
+const canvas = document.getElementById("simulationCanvas");
+const ctx = canvas.getContext("2d");
+
 /*
  * Class representing a feedforward neural network.
  * Expects weights to be an array of matrices (2D arrays)
@@ -77,67 +107,6 @@ class NeuralNetwork {
   }
 }
 
-// Global adjustable parameters.
-const params = {
-  antLifespan: 500, // Ticks before an adult becomes "old"
-  antDensity: 50, // Initial number of ants
-  maxAnts: 200, // Maximum number of ants allowed in the simulation
-  maxAntHealth: 100,
-  foodDensity: 0.05, // Chance that a new grid cell is food
-  terrainDensity: 0.05, // Chance that a new grid cell is terrain
-  eggToAdultTicks: 50, // Ticks for an egg to hatch
-  foodSpawnInterval: 100, // Every X ticks, new food is spawned
-  foodSpawnCount: 5, // Number of food cells to add per spawn event
-  genomeNoise: 0.1 // Amount of mutation to genome during sexual reproduction
-};
-
-// Global variable to hold a seed genome (if adopted).
-let seedGenome = null;
-
-// Get canvas and context.
-const canvas = document.getElementById("simulationCanvas");
-const ctx = canvas.getContext("2d");
-
-// Resize canvas to fill the screen.
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-// Simulation settings.
-let simulationSpeed = 30; // ticks per second
-let cellSize = 10; // size of each simulation cell (pixels)
-
-// Camera parameters for panning.
-let camera = { x: 0, y: 0 };
-let isDragging = false;
-let dragStart = { x: 0, y: 0 };
-let cameraStart = { x: 0, y: 0 };
-
-canvas.addEventListener("mousedown", (e) => {
-  isDragging = true;
-  dragStart.x = e.clientX;
-  dragStart.y = e.clientY;
-  cameraStart.x = camera.x;
-  cameraStart.y = camera.y;
-});
-canvas.addEventListener("mousemove", (e) => {
-  if (isDragging) {
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    camera.x = cameraStart.x - dx;
-    camera.y = cameraStart.y - dy;
-  }
-});
-canvas.addEventListener("mouseup", () => {
-  isDragging = false;
-});
-canvas.addEventListener("mouseleave", () => {
-  isDragging = false;
-});
-
 /**
  * Class representing an ant.
  */
@@ -146,17 +115,24 @@ class Ant {
     this.x = x; // Position on the grid
     this.y = y;
     this.age = 0;
-    this.health = 100;
+    this.health = params.maxAntHealth;
     this.stage = stage != null ? stage : "egg"; // "egg", "adult", "old"
     this.stageAge = 0;
-    this.id = crypto.randomUUID(); // Unique identifier
+    this.id = crypto.randomUUID(); // Unique identifier for debugging
 
     // Neural network initialization (inherit or random)
     if (neuralNetwork) {
       // console.log(neuralNetwork.weights);
+      // Apply small mutation to encourage diversity
+      let weights = neuralNetwork.weights.map(layer =>
+          layer.map(value => value + (Math.random() - 0.5) * params.genomeNoise)
+      );
+      let biases = neuralNetwork.biases.map(layer =>
+          layer.map(value => value + (Math.random() - 0.5) * params.genomeNoise)
+      );
       // let weights = neuralNetwork.weights.map((value) => value + (Math.random() - 0.5) * 0.1);
       // let biases = neuralNetwork.biases.map((value) => value + (Math.random() - 0.5) * 0.1);
-      this.neuralNetwork = neuralNetwork;
+      this.neuralNetwork = new NeuralNetwork(weights, biases);
     } else {
       this.neuralNetwork = new NeuralNetwork(
           this.randomWeights(),
@@ -277,9 +253,6 @@ class Ant {
     let inputVector = this.processVision(simulation); // Convert to NN input
     let outputVector = this.neuralNetwork.predict(inputVector); // Compute outputs
 
-    console.log("id: " + this.id + ": inputVector: " + inputVector);
-    console.log("id: " + this.id + ": outputVector: " + outputVector);
-
     let actions =
         this.stage === "adult"
             ? [
@@ -297,20 +270,11 @@ class Ant {
 
     const probabilities = this.neuralNetwork.softmax(outputVector);
     let chosenIndex = this.neuralNetwork.sampleIndex(probabilities);
-    console.log(
-        "id: " +
-        this.id +
-        "chosen action = " +
-        actions[chosenIndex % actions.length] +
-        "chosen index = " + chosenIndex +
-        "outputVector = " + outputVector +
-        "inputVector = " + inputVector
-    );
+
     return actions[chosenIndex % actions.length]; // Return corresponding action
   }
 
   processAction(action, simulation) {
-    console.log("processing action" + action);
     // For movement, compute target cell and check for terrain.
     if (["up", "down", "left", "right"].includes(action)) {
       let newX = this.x,
@@ -339,7 +303,7 @@ class Ant {
             simulation.getAntAt(this.x + 1, this.y);
         if (target && target.stage === 'egg') {
           target.health -= 50;
-          this.health = Math.min(params.maxAntHealth, this.health + 20);
+          this.health = Math.min(params.maxAntHealth, this.health + 10);
         }
         else if (target) target.health -= 10;
         break;
@@ -347,13 +311,13 @@ class Ant {
       case "eat": {
         const cell = simulation.getCell(this.x, this.y);
         if (cell === "food") {
-          this.health = Math.min(100, this.health + 20);
+          this.health = Math.min(params.maxAntHealth, this.health + 10);
           simulation.clearCell(this.x, this.y);
         }
         break;
       }
       case "sleep":
-        this.health = Math.min(100, this.health + 5);
+        this.health = Math.min(params.maxAntHealth, this.health + 5);
         break;
       case "asexual": {
         if (simulation.ants.length < params.maxAnts) {
@@ -505,7 +469,7 @@ class Simulation {
       ant.health -= 1;
       if (ant.stage === "egg" && ant.stageAge >= params.eggToAdultTicks) {
         ant.stage = "adult";
-        ant.health = 100;
+        ant.health = params.maxAntHealth;
       }
       if (ant.stage === "adult" && ant.age >= params.antLifespan + (Math.random() - 0.5) * 0.05) {
         ant.stage = "old";
@@ -553,26 +517,32 @@ class Simulation {
   }
 }
 
-// Create a new simulation.
-let simulation = new Simulation();
-
-// Global tick counter for food spawning.
-let tickCount = 0;
-function spawnFood() {
-  // Determine the visible grid boundaries:
-  const left = Math.floor(camera.x / cellSize);
-  const top = Math.floor(camera.y / cellSize);
-  const right = Math.floor((camera.x + canvas.width) / cellSize);
-  const bottom = Math.floor((camera.y + canvas.height) / cellSize);
-
-  // Spawn food at random positions within the visible area:
-  for (let i = 0; i < params.foodSpawnCount; i++) {
-    const foodX = Math.floor(Math.random() * (right - left + 1)) + left;
-    const foodY = Math.floor(Math.random() * (bottom - top + 1)) + top;
-    simulation.grid.set(`${foodX},${foodY}`, "food");
-  }
+// ### Dom Modification Functions
+// Resize canvas to fill the screen.
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 }
 
+let currentSelectedAnt = null;
+function showAntInfo(ant) {
+  currentSelectedAnt = ant;
+  const infoBox = document.getElementById("infoBox");
+  const antInfo = document.getElementById("antInfo");
+  antInfo.innerHTML = `
+    <p><strong>Stage:</strong> ${ant.stage}</p>
+    <p><strong>Position:</strong> (${ant.x}, ${ant.y})</p>
+    <p><strong>Health:</strong> ${ant.health}</p>
+    <p><strong>Age:</strong> ${ant.age}</p>
+    <p><strong>Neural Network:</strong> [  ${[
+    ...ant.neuralNetwork.weights.flat(2), // Flatten weights
+    ...ant.neuralNetwork.biases.flat(2), // Flatten biases
+  ]
+      .map((n) => n.toFixed(2)) // Format each value
+      .join(", ")}]</p>
+  `;
+  infoBox.style.display = "block";
+}
 // Update simulation stats in the Stats drawer.
 function updateStats() {
   const total = simulation.ants.length;
@@ -591,8 +561,8 @@ let isPaused = false;
 document.getElementById("playPauseButton").addEventListener("click", () => {
   isPaused = !isPaused;
   document.getElementById("playPauseButton").textContent = isPaused
-    ? "Play"
-    : "Pause";
+      ? "Play"
+      : "Pause";
 });
 
 // Reset button now resets the simulation with all ants randomized and clears the seed.
@@ -600,7 +570,6 @@ document.getElementById("resetButton").addEventListener("click", () => {
   seedGenome = null;
   simulation = new Simulation();
 });
-
 // Toggle settings drawer.
 const toggleParametersButton = document.getElementById("toggleParameters");
 const parametersDiv = document.getElementById("parameters");
@@ -614,6 +583,36 @@ toggleParametersButton.addEventListener("click", () => {
   }
 });
 
+document.getElementById("adoptGenome").addEventListener("click", () => {
+  if (currentSelectedAnt) {
+    seedGenome = currentSelectedAnt.neuralNetwork;
+    simulation = new Simulation();
+    document.getElementById("infoBox").style.display = "none";
+  }
+});
+// TODO // Build a URL with the ant’s genome encoded and copy to clipboard.
+// document.getElementById("copyGenome").addEventListener("click", () => {
+//   if (currentSelectedAnt) {
+//     const weightsStr = currentSelectedAnt.neuralNetwork.weights.join(",");
+//     const biasesStr = currentSelectedAnt.neuralNetwork.biases.join(",");
+//     const baseUrl = window.location.href.split("?")[0];
+//     const newUrl = `${baseUrl}?weights=${encodeURIComponent(weightsStr)}&biases=${biasesStr}`;
+//     navigator.clipboard.writeText(newUrl).then(() => {
+//       document.getElementById("copyGenome").textContent = "Copied!";
+//       setTimeout(() => {
+//         document.getElementById("copyGenome").textContent = "Copy Link";
+//       }, 2000);
+//     });
+//   }
+// });
+document.getElementById("closeInfo").addEventListener("click", () => {
+  document.getElementById("infoBox").style.display = "none";
+});
+
+// Simulation speed control.
+document.getElementById("simulationSpeed").addEventListener("input", (e) => {
+  simulationSpeed = Number(e.target.value);
+});
 // Apply parameters and reset simulation.
 document.getElementById("applyParameters").addEventListener("click", () => {
   params.antLifespan = Number(document.getElementById("antLifespan").value);
@@ -621,16 +620,16 @@ document.getElementById("applyParameters").addEventListener("click", () => {
   params.maxAnts = Number(document.getElementById("maxAnts").value);
   params.foodDensity = Number(document.getElementById("foodDensity").value);
   params.terrainDensity = Number(
-    document.getElementById("terrainDensity").value,
+      document.getElementById("terrainDensity").value,
   );
   params.eggToAdultTicks = Number(
-    document.getElementById("eggToAdultTicks").value,
+      document.getElementById("eggToAdultTicks").value,
   );
   params.foodSpawnInterval = Number(
-    document.getElementById("foodSpawnInterval").value,
+      document.getElementById("foodSpawnInterval").value,
   );
   params.foodSpawnCount = Number(
-    document.getElementById("foodSpawnCount").value,
+      document.getElementById("foodSpawnCount").value,
   );
   simulation = new Simulation();
 });
@@ -656,75 +655,76 @@ document.getElementById("toggleStats").addEventListener("click", () => {
   }
 });
 
-let currentSelectedAnt = null;
-function showAntInfo(ant) {
-  currentSelectedAnt = ant;
-  const infoBox = document.getElementById("infoBox");
-  const antInfo = document.getElementById("antInfo");
-  antInfo.innerHTML = `
-    <p><strong>Stage:</strong> ${ant.stage}</p>
-    <p><strong>Position:</strong> (${ant.x}, ${ant.y})</p>
-    <p><strong>Health:</strong> ${ant.health}</p>
-    <p><strong>Age:</strong> ${ant.age}</p>
-    <p><strong>Neural Network:</strong> [  ${[
-      ...ant.neuralNetwork.weights.flat(2), // Flatten weights
-      ...ant.neuralNetwork.biases.flat(2), // Flatten biases
-    ]
-      .map((n) => n.toFixed(2)) // Format each value
-      .join(", ")}]</p>
-  `;
-  infoBox.style.display = "block";
-}
-document.getElementById("adoptGenome").addEventListener("click", () => {
-  if (currentSelectedAnt) {
-    seedGenome = currentSelectedAnt.neuralNetwork;
-    simulation = new Simulation();
-    document.getElementById("infoBox").style.display = "none";
+// ### Event Listeners
+window.addEventListener("resize", resizeCanvas);
+canvas.addEventListener("mousedown", (e) => {
+  isDragging = true;
+  dragStart.x = e.clientX;
+  dragStart.y = e.clientY;
+  cameraStart.x = camera.x;
+  cameraStart.y = camera.y;
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (isDragging) {
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    camera.x = cameraStart.x - dx;
+    camera.y = cameraStart.y - dy;
   }
 });
-
-// TODO // Build a URL with the ant’s genome encoded and copy to clipboard.
-// document.getElementById("copyGenome").addEventListener("click", () => {
-//   if (currentSelectedAnt) {
-//     const weightsStr = currentSelectedAnt.neuralNetwork.weights.join(",");
-//     const biasesStr = currentSelectedAnt.neuralNetwork.biases.join(",");
-//     const baseUrl = window.location.href.split("?")[0];
-//     const newUrl = `${baseUrl}?weights=${encodeURIComponent(weightsStr)}&biases=${biasesStr}`;
-//     navigator.clipboard.writeText(newUrl).then(() => {
-//       document.getElementById("copyGenome").textContent = "Copied!";
-//       setTimeout(() => {
-//         document.getElementById("copyGenome").textContent = "Copy Link";
-//       }, 2000);
-//     });
-//   }
-// });
-document.getElementById("closeInfo").addEventListener("click", () => {
-  document.getElementById("infoBox").style.display = "none";
+canvas.addEventListener("mouseup", () => {
+  isDragging = false;
+});
+canvas.addEventListener("mouseleave", () => {
+  isDragging = false;
 });
 
-// Simulation speed control.
-document.getElementById("simulationSpeed").addEventListener("input", (e) => {
-  simulationSpeed = Number(e.target.value);
-});
+// Add touch event listeners for mobile devices
+canvas.addEventListener('touchstart', (e) => {
+  // Prevent default behavior (e.g., scrolling)
+  e.preventDefault();
+  // Use the first touch point
+  const touch = e.touches[0];
+  isDragging = true;
+  dragStart.x = touch.clientX;
+  dragStart.y = touch.clientY;
+  cameraStart.x = camera.x;
+  cameraStart.y = camera.y;
+}, { passive: false });
 
-// Main simulation loop.
-let lastUpdateTime = Date.now();
-function simulationLoop() {
-  const now = Date.now();
-  const delta = now - lastUpdateTime;
-  if (!isPaused && delta > 1000 / simulationSpeed) {
-    simulation.update();
-    lastUpdateTime = now;
-    tickCount++;
-    if (tickCount % params.foodSpawnInterval === 0) {
-      spawnFood();
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (isDragging) {
+    const touch = e.touches[0];
+    const dx = touch.clientX - dragStart.x;
+    const dy = touch.clientY - dragStart.y;
+    camera.x = cameraStart.x - dx;
+    camera.y = cameraStart.y - dy;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  isDragging = false;
+}, { passive: false });
+
+canvas.addEventListener("touchend", (e) => {
+  // Use changedTouches to detect the end of a touch event
+  if (e.changedTouches.length > 0) {
+    const touch = e.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    const clickX = touch.clientX - rect.left + camera.x;
+    const clickY = touch.clientY - rect.top + camera.y;
+    const gridX = Math.floor(clickX / cellSize);
+    const gridY = Math.floor(clickY / cellSize);
+    const ant = simulation.getAntAt(gridX, gridY);
+    if (ant) {
+      showAntInfo(ant);
     }
   }
-  simulation.render();
-  updateStats();
-  requestAnimationFrame(simulationLoop);
-}
-simulationLoop();
+  // Prevent default behavior so the touch doesn't trigger any other actions
+  e.preventDefault();
+}, { passive: false });
 
 // Show ant info when clicking on the canvas.
 canvas.addEventListener("click", (e) => {
@@ -768,3 +768,44 @@ window.addEventListener('load', function() {
     console.log("No seed parameters provided in URL.");
   }
 });
+
+// ### Simulation Initialization
+resizeCanvas();
+
+// Create a new simulation.
+let simulation = new Simulation();
+
+// Global tick counter for food spawning.
+let tickCount = 0;
+function spawnFood() {
+  // Determine the visible grid boundaries:
+  const left = Math.floor(camera.x / cellSize);
+  const top = Math.floor(camera.y / cellSize);
+  const right = Math.floor((camera.x + canvas.width) / cellSize);
+  const bottom = Math.floor((camera.y + canvas.height) / cellSize);
+
+  // Spawn food at random positions within the visible area:
+  for (let i = 0; i < params.foodSpawnCount; i++) {
+    const foodX = Math.floor(Math.random() * (right - left + 1)) + left;
+    const foodY = Math.floor(Math.random() * (bottom - top + 1)) + top;
+    simulation.grid.set(`${foodX},${foodY}`, "food");
+  }
+}
+
+let lastUpdateTime = Date.now();
+function simulationLoop() {
+  const now = Date.now();
+  const delta = now - lastUpdateTime;
+  if (!isPaused && delta > 1000 / simulationSpeed) {
+    simulation.update();
+    lastUpdateTime = now;
+    tickCount++;
+    if (tickCount % params.foodSpawnInterval === 0) {
+      spawnFood();
+    }
+  }
+  simulation.render();
+  updateStats();
+  requestAnimationFrame(simulationLoop);
+}
+simulationLoop();
