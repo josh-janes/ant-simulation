@@ -23,8 +23,6 @@ Features
 
 -   **Statistics Tracking:** View key metrics, including total ants, deaths, and predation counts.
 
--   **Sharable Neural Networks:** Copy and share an ant's genetic code via a URL parameter.
-
 -   **Expandable UI Panels:** Adjustable settings and simulation stats are available through expandable drawers.
 
 Installation
